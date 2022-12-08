@@ -1,0 +1,8 @@
+numpy
+matplotlib
+pandas
+opencv
+flask
+python-socketio==4.6.1
+python-engineio==3.13.0
+eventlet
