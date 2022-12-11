@@ -16,6 +16,7 @@ import json
 import pickle
 import matplotlib.image as mpimg
 import time
+import atexit
 
 # Import functions for perception and decision making
 from perception import perception_step
@@ -77,6 +78,8 @@ class RoverState():
         self.near_sample = 0 # Will be set to telemetry value data["near_sample"]
         self.picking_up = 0 # Will be set to telemetry value data["picking_up"]
         self.send_pickup = False # Set to True to trigger rock pickup
+
+        self.debug = False
 # Initialize our rover 
 Rover = RoverState()
 
@@ -191,7 +194,14 @@ if __name__ == '__main__':
         default='',
         help='Path to image folder. This is where the images from the run will be saved.'
     )
+    parser.add_argument(
+        "-d",
+        action=argparse.BooleanOptionalAction
+    )
+    parser.set_defaults(d = False)
     args = parser.parse_args()
+    Rover.debug = args.d
+    print(Rover.debug)
     
     #os.system('rm -rf IMG_stream/*')
     if args.image_folder != '':
@@ -210,4 +220,6 @@ if __name__ == '__main__':
 
     # deploy as an eventlet WSGI server
     eventlet.wsgi.server(eventlet.listen(('', 4567)), app)
+
     
+    atexit.register(cv2.destroyAllWindows)

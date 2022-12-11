@@ -1,6 +1,5 @@
 import numpy as np
 import cv2
-
 # Identify pixels above the threshold
 # Threshold of RGB > 160 does a nice job of identifying ground pixels only
 def color_thresh(img, rgb_thresh=(160, 160, 160)):
@@ -88,6 +87,19 @@ def get_rocks(img, lvls = (100, 100, 10)):
     color_select[rockpix] = 1
     return color_select
 
+def rect_mask(warped_image, width: int = 300, height: int =0):
+    '''
+    A rectangular mask that should be applied on
+    the  prespective transformed image after thresholding
+    the mask is always centered at the bottom center of the image'''
+    if height == 0:
+        height = warped_image.shape[0]
+    mask = np.zeros_like(warped_image)
+    xcenter = int(warped_image.shape[1]/2)
+    mask[-height :, xcenter-int(width/2): xcenter + int(width/2)] =1
+    output = np.bitwise_and(warped_image, mask)
+    return output
+
 # Apply the above functions in succession and update the Rover state accordingly
 def perception_step(Rover):
     # Perform perception steps to update Rover()
@@ -112,6 +124,7 @@ def perception_step(Rover):
     # Update Rover pixel distances and angles
         # Rover.nav_dists = rover_centric_pixel_distances
         # Rover.nav_angles = rover_centric_angles
+    debuggingPipe = []
     dst_size = 5
     bottom_offset = 6
     image = Rover.img
@@ -128,14 +141,19 @@ def perception_step(Rover):
     ], np.float32)
 
     warped = perspect_transform(image, source, destination)
+    debuggingPipe.append(warped)
 
     threshed = color_thresh(warped)
+    debuggingPipe.append(threshed*255)
+
+    threshed_masked = rect_mask(threshed, width = 80)
+    debuggingPipe.append(threshed_masked*255)
     obs_map = np.absolute(np.float32(threshed)-1)
     
     Rover.vision_image[:, :, 2] = threshed*255
     Rover.vision_image[:, :, 0] = obs_map*255
     
-    xpix, ypix = rover_coords(threshed)
+    xpix, ypix = rover_coords(threshed_masked)
     world_size = Rover.worldmap.shape[0]
     scale = 2 * dst_size
     x_world, y_world = pix_to_world(xpix, ypix, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
@@ -143,8 +161,9 @@ def perception_step(Rover):
     obsxpix, obsypix = rover_coords(obs_map)
     obs_x_world, obs_y_world = pix_to_world(obsxpix, obsypix, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
 
-    Rover.worldmap[y_world, x_world, 2] += 10
-    Rover.worldmap[obs_y_world, obs_x_world, 0] += 1
+    if abs(Rover.pitch) < 1 and abs(Rover.roll) <1:
+        Rover.worldmap[y_world, x_world, 2] += 10
+        Rover.worldmap[obs_y_world, obs_x_world, 0] += 1
 
     dist, angles = to_polar_coords(xpix, ypix)
 
@@ -162,7 +181,10 @@ def perception_step(Rover):
     else:
         Rover.vision_image[:, :, 1] = 0
    
-       
-    
+    if (Rover.debug):
+        for i, image in enumerate(debuggingPipe):
+            BGRimage = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) 
+            cv2.imshow(str(i+1), BGRimage)
+        cv2.waitKey(15)
     
     return Rover
