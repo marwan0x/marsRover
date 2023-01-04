@@ -16,6 +16,29 @@ def color_thresh(img, rgb_thresh=(160, 160, 160)):
     # Return the binary image
     return color_select
 
+def color_thresh_inverted(img, rgb_thresh=(70, 70, 70)):
+    # Create an array of zeros same xy size as img, but single channel
+    color_select = np.ones_like(img[:,:,0])
+    # Require that each pixel be above all three threshold values in RGB
+    # above_thresh will now contain a boolean array with "True"
+    # where threshold was met
+    above_thresh = (img[:,:, 0] < rgb_thresh[0]) \
+                  &(img[:,:, 1] < rgb_thresh[1]) \
+                  &(img[:,:, 2] < rgb_thresh[2])
+    
+    color_select[above_thresh] = 0
+    # Return the binary image
+    return color_select
+
+def color_thresh2(img, thresh = 180):
+    grayscale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    color_select = np.zeros_like(img[:,:,0])
+    above_thresh = grayscale[: , :] > thresh
+
+    color_select[above_thresh] = 1
+    return color_select
+
+
 # Define a function to convert from image coords to rover coords
 def rover_coords(binary_img):
     # Identify nonzero pixels
@@ -79,15 +102,15 @@ def perspect_transform(img, src, dst):
     
     return warped
 
-def get_rocks(img, lvls = (100, 100, 10)):
+def get_rocks(img, lvls = (100, 100, 50)):
     rockpix = (img[:, :, 0]> lvls[0])\
             &(img[:, :, 1]> lvls[1])\
-            &(img[:, :, 2]> lvls[2])
+            &(img[:, :, 2]< lvls[2])
     color_select = np.zeros_like(img[:, :, 0])
     color_select[rockpix] = 1
     return color_select
 
-def rect_mask(warped_image, width: int = 300, height: int =0):
+def rect_mask(warped_image, width: int = 320, height: int =90):
     '''
     A rectangular mask that should be applied on
     the  prespective transformed image after thresholding
@@ -99,6 +122,20 @@ def rect_mask(warped_image, width: int = 300, height: int =0):
     mask[-height :, xcenter-int(width/2): xcenter + int(width/2)] =1
     output = np.bitwise_and(warped_image, mask)
     return output
+
+def removeUsedPix(Rover, x_pix, y_pix, x_pix_world, y_pix_world):
+    newX_pix = np.ndarray([])
+    newY_pix = np.ndarray([])
+    for i in range(len(x_pix_world)):
+        if(x_pix_world[i], y_pix_world[i]) not in Rover.allPos:
+            newX_pix = np.append(newX_pix, x_pix[i])
+            newY_pix = np.append(newY_pix, y_pix[i])
+        # else:
+            # print("here")
+
+    if newX_pix.size< Rover.stop_forward:
+        return x_pix, y_pix
+    return newX_pix, newY_pix
 
 # Apply the above functions in succession and update the Rover state accordingly
 def perception_step(Rover):
@@ -143,29 +180,35 @@ def perception_step(Rover):
     warped = perspect_transform(image, source, destination)
     debuggingPipe.append(warped)
 
-    threshed = color_thresh(warped)
-    debuggingPipe.append(threshed*255)
+    threshed_nav = color_thresh(warped, rgb_thresh= (160, 160, 160))
+    threshed_map = color_thresh(warped, rgb_thresh=(180, 175, 160))
+    debuggingPipe.append(threshed_nav*255)
 
-    threshed_masked = rect_mask(threshed, width = 80)
-    debuggingPipe.append(threshed_masked*255)
-    obs_map = np.absolute(np.float32(threshed)-1)
+    threshed_masked_nav = rect_mask(threshed_nav)
+    threshed_masked_map = rect_mask(threshed_map)
+    debuggingPipe.append(threshed_masked_nav*255)
+    obs_map = np.absolute(np.float32(threshed_masked_nav)-1)
     
-    Rover.vision_image[:, :, 2] = threshed*255
+    Rover.vision_image[:, :, 2] = threshed_masked_nav*255
     Rover.vision_image[:, :, 0] = obs_map*255
     
-    xpix, ypix = rover_coords(threshed_masked)
+    xpix, ypix = rover_coords(threshed_masked_nav)
+    xpix_map, ypix_map = rover_coords(threshed_masked_map)
     world_size = Rover.worldmap.shape[0]
     scale = 2 * dst_size
-    x_world, y_world = pix_to_world(xpix, ypix, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
-    
+    x_world, y_world = pix_to_world(xpix_map, ypix_map, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
+    x_world_nav, y_world_nav = pix_to_world(xpix, ypix, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
+    new_x_pix, new_y_pix = removeUsedPix(Rover,xpix ,ypix,x_world_nav, y_world_nav)
+    # print("type new_x_pix", type(new_xpix))
+    # print("type x_pix", type(xpix))
     obsxpix, obsypix = rover_coords(obs_map)
     obs_x_world, obs_y_world = pix_to_world(obsxpix, obsypix, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
 
-    if abs(Rover.pitch) < 1 and abs(Rover.roll) <1:
+    if (abs(Rover.pitch) < 1 and abs(Rover.roll) <1)or ( Rover.pitch >= 359 and Rover.roll > 359):
         Rover.worldmap[y_world, x_world, 2] += 10
         Rover.worldmap[obs_y_world, obs_x_world, 0] += 1
 
-    dist, angles = to_polar_coords(xpix, ypix)
+    dist, angles = to_polar_coords(new_x_pix, new_y_pix)
 
     Rover.nav_angles = angles
     rock_map = get_rocks(warped)
@@ -173,6 +216,7 @@ def perception_step(Rover):
         rock_x, rock_y = rover_coords(rock_map)
         rock_x_world, rock_y_world = pix_to_world(rock_x, rock_y, Rover.pos[0], Rover.pos[1], Rover.yaw, world_size, scale)
         rock_dist, rock_angel = to_polar_coords(rock_x, rock_y)
+        Rover.samples_pos = (rock_dist, rock_angel)
         rock_idx = np.argmin(rock_dist)
         rock_xcen = rock_x_world[rock_idx]
         rock_y_cen = rock_y_world[rock_idx]
@@ -180,6 +224,7 @@ def perception_step(Rover):
         Rover.vision_image[:, :, 1] = rock_map * 255
     else:
         Rover.vision_image[:, :, 1] = 0
+        Rover.samples_pos = (np.array([]), np.array([]))
    
     if (Rover.debug):
         for i, image in enumerate(debuggingPipe):
@@ -187,4 +232,9 @@ def perception_step(Rover):
             cv2.imshow(str(i+1), BGRimage)
         cv2.waitKey(15)
     
+    #save our current position in memory if not already in it.
+    pos = (int(Rover.pos[0]), int(Rover.pos[1]))
+    if pos not in Rover.allPos:
+        Rover.allPos.append(pos)
+
     return Rover
