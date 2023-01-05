@@ -99,6 +99,14 @@ def decision_step(Rover):
             Rover.mode = 'stop'
             Rover.near_sample=1
             Rover.samples_located=Rover.samples_located+1
+            if Rover.vel <= 0.2 and (Rover.total_time-Rover.time_stopped)>5:
+                Rover.time_stopped=Rover.total_time
+                Rover.stuck=1
+                Rover.stuck_yaw=Rover.yaw
+                Rover.steer = -15 # Could be more clever here about which way to turn
+                if np.absolute(Rover.stuck_yaw-Rover.yaw)>10:
+                    Rover.stuck=0
+
             
         # If in a state where want to pickup a rock send pickup command
     if Rover.near_sample and Rover.vel == 0 and not Rover.picking_up:

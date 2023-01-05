@@ -178,15 +178,17 @@ def perception_step(Rover):
     ], np.float32)
 
     warped = perspect_transform(image, source, destination)
-    debuggingPipe.append(warped)
+    debuggingPipe.append((warped, "warped"))
 
     threshed_nav = color_thresh(warped, rgb_thresh= (160, 160, 160))
     threshed_map = color_thresh(warped, rgb_thresh=(180, 175, 160))
-    debuggingPipe.append(threshed_nav*255)
+    debuggingPipe.append((threshed_nav*255, "threshed for nav"))
+    debuggingPipe.append((threshed_nav*255, "threshed for map"))
 
     threshed_masked_nav = rect_mask(threshed_nav)
     threshed_masked_map = rect_mask(threshed_map)
-    debuggingPipe.append(threshed_masked_nav*255)
+    debuggingPipe.append((threshed_masked_nav*255, "applied rectangular mask for nav"))
+    debuggingPipe.append((threshed_masked_map*255, "applied rectangular mask for map"))
     obs_map = np.absolute(np.float32(threshed_masked_nav)-1)
     
     Rover.vision_image[:, :, 2] = threshed_masked_nav*255
@@ -228,8 +230,8 @@ def perception_step(Rover):
    
     if (Rover.debug):
         for i, image in enumerate(debuggingPipe):
-            BGRimage = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) 
-            cv2.imshow(str(i+1), BGRimage)
+            BGRimage = cv2.cvtColor(image[0], cv2.COLOR_RGB2BGR) 
+            cv2.imshow(str(i+1) +" "+ image[1], BGRimage)
         cv2.waitKey(15)
     
     #save our current position in memory if not already in it.
